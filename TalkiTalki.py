@@ -1,97 +1,98 @@
-# UART chat for two Pico boards (MicroPython)
-# Works in VS Code terminals. Uses _thread so incoming messages are printed
-# while you type (input() runs in background thread).
-
 from machine import UART, Pin
 import time
 import _thread
 
-# ----- CONFIG -----
+# --- CONFIG ---
 UART_ID = 1
-TX_PIN = 8   # GP8
-RX_PIN = 9   # GP9
+TX_PIN = 8
+RX_PIN = 9
 BAUD = 9600
-KEEPALIVE_INTERVAL = 10  # seconds between keep-alives when idle
-# ------------------
+KEEPALIVE_INTERVAL = 10
+# --------------
 
-uart = UART(UART_ID, baudrate=BAUD, tx=Pin(TX_PIN), rx=Pin(RX_PIN))
-uart.init(bits=8, parity=None, stop=1)
+try:
+    uart = UART(UART_ID, baudrate=BAUD, tx=Pin(TX_PIN), rx=Pin(RX_PIN))
+    uart.init(bits=8, parity=None, stop=1)
+except Exception as e:
+    print("UART init error:", e)
+    raise SystemExit
 
-# Shared simple queue for outgoing messages
 send_queue = []
 queue_lock = _thread.allocate_lock()
-
 last_send_time = time.time()
 
-print("UART Chat (Pico). Type a message and press Enter to send.")
-print("Keep-alive every", KEEPALIVE_INTERVAL, "s when idle.\n")
+print("UART Chat Ready. Type and press Enter to send.\n")
 
 def input_thread():
-    """Background thread: blocking input() to collect user messages."""
     while True:
         try:
-            line = input()  # blocking; works in VS Code terminal
-        except Exception:
-            # If input fails for any reason, just try again
-            continue
-        if line is None:
-            continue
-        line = line.strip()
-        if line:
-            queue_lock.acquire()
-            send_queue.append(line)
-            queue_lock.release()
-        # pressing Enter on empty line simply does nothing
-
-# Start the background input thread
-_thread.start_new_thread(input_thread, ())
+            line = input()
+            if line:
+                queue_lock.acquire()
+                send_queue.append(line.strip())
+                queue_lock.release()
+        except Exception as e:
+            print("Input error:", e)
+            time.sleep(1)
 
 def format_timestamp(t):
-    """Simple hh:mm:ss from seconds since boot (no strftime)."""
     t = int(t)
-    h = (t // 3600) % 24
-    m = (t // 60) % 60
-    s = t % 60
+    h, m, s = (t // 3600) % 24, (t // 60) % 60, t % 60
     return "{:02d}:{:02d}:{:02d}".format(h, m, s)
 
-# Main loop: receive, send queued messages, and keepalive
+try:
+    _thread.start_new_thread(input_thread, ())
+except Exception as e:
+    print("Thread start failed:", e)
+    raise SystemExit
+
 try:
     while True:
-        # 1) Receive incoming UART data continuously
-        if uart.any():
-            data = uart.readline()
-            if data:
-                try:
-                    text = data.decode().rstrip('\r\n')
-                except Exception:
-                    text = repr(data)
-                # Print partner message on its own line
-                print("[Partner]:", text)
+        # Receive
+        try:
+            if uart.any():
+                data = uart.readline()
+                if data:
+                    try:
+                        text = data.decode().strip()
+                    except Exception:
+                        text = str(data)
+                    print("[Partner]:", text)
+        except Exception as e:
+            print("UART read error:", e)
 
-        # 2) If user typed something (in background thread), send it
-        msg_to_send = None
+        # Send
+        msg = None
         queue_lock.acquire()
         if send_queue:
-            msg_to_send = send_queue.pop(0)
+            msg = send_queue.pop(0)
         queue_lock.release()
 
-        if msg_to_send:
-            uart.write(msg_to_send + "\n")
-            print("[You]:", msg_to_send)
-            last_send_time = time.time()
-            # continue immediately to keep responsiveness
+        if msg:
+            try:
+                uart.write(msg + "\n")
+                print("[You]:", msg)
+                last_send_time = time.time()
+            except Exception as e:
+                print("UART send error:", e)
 
-        # 3) Periodic keep-alive (simple timestamp, no strftime)
+        # Keep-alive
         now = time.time()
         if now - last_send_time >= KEEPALIVE_INTERVAL:
-            stamp = format_timestamp(now)
-            keep_msg = "Keep-alive: " + stamp
-            uart.write(keep_msg + "\n")
-            print("[You -> KeepAlive]:", keep_msg)
-            last_send_time = now
+            try:
+                msg = "Keep-alive: " + format_timestamp(now)
+                uart.write(msg + "\n")
+                print("[KeepAlive]:", msg)
+                last_send_time = now
+            except Exception as e:
+                print("Keep-alive send error:", e)
 
-        # small sleep to avoid busy-looping
         time.sleep(0.03)
 
 except KeyboardInterrupt:
-    print("Exiting chat.")
+    print("Chat stopped.")
+except Exception as e:
+    print("Fatal error:", e)
+finally:
+    uart.deinit()
+    print("UART closed.")
