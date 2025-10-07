@@ -6,8 +6,9 @@ UART_ID = 1
 TX_PIN = 8
 RX_PIN = 9
 BAUD = 9600
-KEEPALIVE_INTERVAL = 10      # send keep-alive every 10s
+KEEPALIVE_INTERVAL = 10      # seconds between keep-alive messages
 SESSION_TIMEOUT = 30         # stop 30s after program starts
+INPUT_CHECK_INTERVAL = 2     # check for user input every 2 seconds
 # ----------------
 
 # UART setup
@@ -20,6 +21,7 @@ except Exception as e:
 
 start_time = time.time()
 last_send_time = start_time
+last_input_check = start_time
 
 print("UART Chat Ready. Program will close after 30 seconds.\n")
 
@@ -33,7 +35,7 @@ try:
     while True:
         now = time.time()
 
-        # --- Check for incoming messages ---
+        # --- Receive messages ---
         if uart.any():
             data = uart.readline()
             if data:
@@ -43,7 +45,7 @@ try:
                     text = str(data)
                 print("[Partner]:", text)
 
-        # --- Send keep-alive if idle ---
+        # --- Keep-alive messages ---
         if now - last_send_time >= KEEPALIVE_INTERVAL:
             try:
                 msg = "Keep-alive: " + format_timestamp(now)
@@ -53,8 +55,8 @@ try:
             except Exception as e:
                 print("Keep-alive send error:", e)
 
-        # User input
-        if now % 2 < 0.25:  # prompt roughly every 2 seconds
+        # --- User input check every 2 seconds ---
+        if now - last_input_check >= INPUT_CHECK_INTERVAL:
             try:
                 msg = input("You: ").strip()
                 if msg:
@@ -63,15 +65,16 @@ try:
                     last_send_time = now
             except Exception as e:
                 print("Input or send error:", e)
+            last_input_check = now  # reset timer
 
-        # session timeout 
+        # --- Session timeout ---
         if now - start_time >= SESSION_TIMEOUT:
             print("\n[INFO] 30 seconds elapsed. Closing chat.")
             break
 
         time.sleep(0.25)
 
-# cleanup ports
+# --- Cleanup ---
 except KeyboardInterrupt:
     print("Chat stopped by user.")
 except Exception as e:
