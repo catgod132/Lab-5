@@ -53,7 +53,7 @@ try:
             except Exception as e:
                 print("Keep-alive send error:", e)
 
-        # --- User input (optional) ---
+        # User input
         if now % 2 < 0.25:  # prompt roughly every 2 seconds
             try:
                 msg = input("You: ").strip()
@@ -64,14 +64,14 @@ try:
             except Exception as e:
                 print("Input or send error:", e)
 
-        # --- Session timeout ---
+        # session timeout 
         if now - start_time >= SESSION_TIMEOUT:
             print("\n[INFO] 30 seconds elapsed. Closing chat.")
             break
 
         time.sleep(0.25)
 
-# --- Cleanup ---
+# cleanup ports
 except KeyboardInterrupt:
     print("Chat stopped by user.")
 except Exception as e:
